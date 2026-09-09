@@ -1,0 +1,272 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  phone        String?
+  role         String    @default("PARENT") // ADMIN, PARENT
+  avatar       String?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  parentProfile Parent?
+  billsCreated  Bill[]     @relation("BillCreator")
+  paymentsLogged Payment[] @relation("PaymentAdmin")
+  notifications Notification[]
+  auditLogs     AuditLog[]
+
+  @@map("users")
+}
+
+model Parent {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  nik              String?
+  address          String?
+  occupation       String?
+  emergencyContact String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentStudents   ParentStudent[]
+
+  @@map("parents")
+}
+
+model Class {
+  id             String   @id @default(uuid())
+  name           String
+  grade          String   @default("10") // e.g. "TK A", "TK B", "1" - "12", or custom text
+  major          String?  // MIPA, IPS, TKJ, Umum, etc.
+  academicYearId String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  academicYear   AcademicYear? @relation(fields: [academicYearId], references: [id])
+  students       Student[]
+
+  @@map("classes")
+}
+
+model AcademicYear {
+  id        String   @id @default(uuid())
+  name      String   // e.g. "2025/2026"
+  semester  String   // "GANJIL", "GENAP"
+  isCurrent Boolean  @default(false)
+  startDate DateTime?
+  endDate   DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  classes   Class[]
+  students  Student[]
+  bills     Bill[]
+
+  @@map("academic_years")
+}
+
+model Student {
+  id             String   @id @default(uuid())
+  nis            String   @unique
+  nisn           String?  @unique
+  fullName       String
+  gender         String   @default("L") // "L" (Laki-laki), "P" (Perempuan)
+  classId        String
+  academicYearId String
+  address        String?
+  phone          String?
+  status         String   @default("ACTIVE") // ACTIVE, GRADUATED, INACTIVE
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  class          Class           @relation(fields: [classId], references: [id])
+  academicYear   AcademicYear    @relation(fields: [academicYearId], references: [id])
+  parentStudents ParentStudent[]
+  bills          Bill[]
+  payments       Payment[]
+
+  @@map("students")
+}
+
+model ParentStudent {
+  id           String   @id @default(uuid())
+  parentId     String
+  studentId    String
+  relationship String   @default("ORANG_TUA") // AYAH, IBU, WALI, ORANG_TUA
+  isPrimary    Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  parent       Parent   @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([parentId, studentId])
+  @@map("parent_students")
+}
+
+model BillType {
+  id                   String   @id @default(uuid())
+  code                 String   @unique // SPP, GEDUNG, SERAGAM, DAFTAR_ULANG, BUKU, KEGIATAN, EKSKUL, LAINNYA
+  name                 String   // SPP Bulanan, Uang Gedung, etc.
+  description          String?
+  isInstallmentAllowed Boolean  @default(false)
+  defaultAmount        Int      @default(0) // in Rupiah IDR
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  bills                Bill[]
+
+  @@map("bill_types")
+}
+
+model Bill {
+  id               String   @id @default(uuid())
+  billNumber       String   @unique // e.g. "BILL-2026-0001"
+  studentId        String
+  billTypeId       String
+  academicYearId   String
+  title            String   // e.g. "SPP Bulan Juli 2026", "Uang Gedung Tahun 2025/2026"
+  totalAmount      Int      // in IDR (integer)
+  paidAmount       Int      @default(0)
+  remainingAmount  Int
+  status           String   @default("UNPAID") // UNPAID, PARTIAL, PAID, OVERDUE
+  dueDate          DateTime
+  allowInstallment Boolean  @default(false)
+  notes            String?
+  createdById      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  student          Student             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  billType         BillType            @relation(fields: [billTypeId], references: [id])
+  academicYear     AcademicYear        @relation(fields: [academicYearId], references: [id])
+  createdBy        User?               @relation("BillCreator", fields: [createdById], references: [id])
+  installments     Installment[]
+  payments         Payment[]
+  allocations      PaymentAllocation[]
+
+  @@map("bills")
+}
+
+model Installment {
+  id                String   @id @default(uuid())
+  billId            String
+  installmentNumber Int      // 1, 2, 3...
+  amount            Int      // in IDR (integer)
+  paidAmount        Int      @default(0)
+  remainingAmount   Int
+  dueDate           DateTime
+  status            String   @default("UNPAID") // UNPAID, PAID, OVERDUE
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  bill              Bill                @relation(fields: [billId], references: [id], onDelete: Cascade)
+  payments          Payment[]
+  allocations       PaymentAllocation[]
+
+  @@map("installments")
+}
+
+model Payment {
+  id                  String    @id @default(uuid())
+  paymentNumber       String    @unique // e.g. "TRX-20260710-0012"
+  billId              String
+  installmentId       String?
+  studentId           String
+  amount              Int       // in IDR (integer)
+  paymentMethod       String    // QRIS, VA_BCA, VA_BNI, VA_BRI, VA_MANDIRI, BANK_TRANSFER, CASH
+  status              String    @default("PENDING") // PENDING, SUCCESS, FAILED, EXPIRED, CANCELLED
+  referenceNumber     String?
+  paidAt              DateTime?
+  expiresAt           DateTime?
+  recordedById        String?   // Admin User ID for manual/cash payments
+  notes               String?
+  rawGatewayResponse  String?   // JSON string if any
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  bill                Bill                @relation(fields: [billId], references: [id])
+  installment         Installment?        @relation(fields: [installmentId], references: [id])
+  student             Student             @relation(fields: [studentId], references: [id])
+  recordedBy          User?               @relation("PaymentAdmin", fields: [recordedById], references: [id])
+  allocations         PaymentAllocation[]
+
+  @@map("payments")
+}
+
+model PaymentAllocation {
+  id              String   @id @default(uuid())
+  paymentId       String
+  billId          String
+  installmentId   String?
+  allocatedAmount Int      // in IDR
+  createdAt       DateTime @default(now())
+
+  payment         Payment      @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  bill            Bill         @relation(fields: [billId], references: [id], onDelete: Cascade)
+  installment     Installment? @relation(fields: [installmentId], references: [id], onDelete: Cascade)
+
+  @@map("payment_allocations")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  message   String
+  type      String   @default("SYSTEM") // BILL_CREATED, PAYMENT_SUCCESS, PAYMENT_FAILED, DUE_REMINDER, SYSTEM
+  isRead    Boolean  @default(false)
+  linkUrl   String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  action     String   // CREATE_BILL, UPDATE_BILL, DELETE_BILL, CREATE_INSTALLMENT, UPDATE_INSTALLMENT, MANUAL_PAYMENT, VOID_PAYMENT, UPDATE_SETTING
+  entityType String   // Bill, Installment, Payment, Student, SchoolSetting
+  entityId   String?
+  beforeData String?  // JSON string
+  afterData  String?  // JSON string
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
+
+model SchoolSetting {
+  id                     String   @id @default(uuid())
+  schoolName             String   @default("White Bee School of Life")
+  schoolNpsn             String   @default("20104567")
+  schoolAddress          String   @default("Jl. Taman White Bee No. 12, Kebayoran Baru, Jakarta Selatan, DKI Jakarta 12150")
+  schoolPhone            String   @default("021-78901234")
+  schoolEmail            String   @default("info@whitebee.sch.id")
+  schoolLogo             String?  @default("/logo.png")
+  principalName          String   @default("Drs. H. Bambang Suhartono, M.Pd")
+  treasurerName          String   @default("Siti Rahmawati, S.E")
+  academicYearCurrentId  String?
+  paymentGatewayConfig   String?  // JSON config for sandbox/Midtrans/Xendit
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@map("school_settings")
+}
