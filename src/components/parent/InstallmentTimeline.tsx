@@ -14,6 +14,7 @@ interface Installment {
   dueDate: string | Date;
   status: string;
   notes?: string;
+  payments?: any[];
 }
 
 interface InstallmentTimelineProps {
@@ -51,6 +52,7 @@ export function InstallmentTimeline({
       <div className="relative pl-6 space-y-6 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
         {installments.map((inst, idx) => {
           const isPaid = inst.remainingAmount === 0;
+          const isPendingVerification = inst.payments?.some((p: any) => p.status === "PENDING");
           const isCurrentPayable = idx === firstUnpaidIndex;
           const isOverdue =
             !isPaid && new Date(inst.dueDate).getTime() < new Date().getTime();
@@ -62,6 +64,8 @@ export function InstallmentTimeline({
                 className={`absolute -left-6 top-1 w-5 h-5 rounded-full flex items-center justify-center ring-4 ring-white ${
                   isPaid
                     ? "bg-emerald-500 text-white"
+                    : isPendingVerification
+                    ? "bg-amber-500 text-white"
                     : isCurrentPayable
                     ? isOverdue
                       ? "bg-rose-500 text-white animate-pulse"
@@ -71,6 +75,8 @@ export function InstallmentTimeline({
               >
                 {isPaid ? (
                   <CheckCircle2 className="w-3.5 h-3.5" />
+                ) : isPendingVerification ? (
+                  <Clock className="w-3.5 h-3.5" />
                 ) : (
                   <span className="text-[10px] font-bold">{inst.installmentNumber}</span>
                 )}
@@ -81,6 +87,8 @@ export function InstallmentTimeline({
                 className={`p-4 rounded-2xl border transition-all ${
                   isPaid
                     ? "bg-slate-50 border-slate-200 opacity-80"
+                    : isPendingVerification
+                    ? "bg-amber-50/50 border-amber-300 shadow-xs"
                     : isCurrentPayable
                     ? "bg-white border-sky-300 shadow-md ring-1 ring-sky-100"
                     : "bg-white border-slate-200 opacity-90"
@@ -95,6 +103,11 @@ export function InstallmentTimeline({
                       {isPaid ? (
                         <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
                           Lunas ✓
+                        </span>
+                      ) : isPendingVerification ? (
+                        <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          Menunggu Verifikasi Admin
                         </span>
                       ) : isOverdue ? (
                         <span className="text-[10px] bg-rose-100 text-rose-800 font-bold px-2 py-0.5 rounded-full">
@@ -143,10 +156,18 @@ export function InstallmentTimeline({
                     <span className="text-xs text-slate-600">
                       Termin aktif yang harus dibayar sekarang
                     </span>
-                    {onPayClick ? (
+                    {isPendingVerification ? (
+                      <Link
+                        href="/parent/payments"
+                        className="inline-flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-bold px-3.5 py-1.5 rounded-xl transition shadow-2xs"
+                      >
+                        <Clock className="w-3.5 h-3.5 text-amber-600" />
+                        Cek Status di Riwayat
+                      </Link>
+                    ) : onPayClick ? (
                       <button
                         onClick={() => onPayClick(inst)}
-                        className="inline-flex items-center gap-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold px-3.5 py-1.5 rounded-xl transition shadow-sm"
+                        className="inline-flex items-center gap-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold px-3.5 py-1.5 rounded-xl transition shadow-sm cursor-pointer"
                       >
                         Bayar Cicilan Ini
                         <ArrowRight className="w-3.5 h-3.5" />
@@ -154,7 +175,7 @@ export function InstallmentTimeline({
                     ) : (
                       <Link
                         href={`/parent/checkout?billId=${billId}&installmentId=${inst.id}`}
-                        className="inline-flex items-center gap-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold px-3.5 py-1.5 rounded-xl transition shadow-sm"
+                        className="inline-flex items-center gap-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold px-3.5 py-1.5 rounded-xl transition shadow-sm cursor-pointer"
                       >
                         Bayar Sekarang
                         <ArrowRight className="w-3.5 h-3.5" />

@@ -175,89 +175,128 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Execute atomic creation for all target students
-    const createdBills = await prisma.$transaction(async (tx) => {
-      const results = [];
-      const now = new Date();
-      const year = now.getFullYear();
-
-      for (let i = 0; i < targetStudentIds.length; i++) {
-        const sid = targetStudentIds[i];
-        const randomNum = Math.floor(1000 + Math.random() * 9000);
-        const billNumber = `BILL-${year}-${Date.now().toString().slice(-4)}${randomNum}`;
-
-        const newBill = await tx.bill.create({
-          data: {
-            billNumber,
-            studentId: sid,
-            billTypeId,
-            academicYearId,
-            title,
-            totalAmount: amount,
-            paidAmount: 0,
-            remainingAmount: amount,
-            status: "UNPAID",
-            dueDate: new Date(dueDate),
-            allowInstallment: !!allowInstallment,
-            notes: notes || null,
-            createdById: auth.user.id,
-          },
-        });
-
-        // Create installments if allowed
-        if (allowInstallment && installments && installments.length > 0) {
-          for (let termIdx = 0; termIdx < installments.length; termIdx++) {
-            const inst = installments[termIdx];
-            await tx.installment.create({
-              data: {
-                billId: newBill.id,
-                installmentNumber: termIdx + 1,
-                amount: Number(inst.amount),
-                paidAmount: 0,
-                remainingAmount: Number(inst.amount),
-                dueDate: new Date(inst.dueDate),
-                status: "UNPAID",
-                notes: inst.notes || `Cicilan Ke-${termIdx + 1}`,
+    // Pre-fetch all target students and their parent user IDs in ONE single query
+    const targetStudents = await prisma.student.findMany({
+      where: { id: { in: targetStudentIds } },
+      select: {
+        id: true,
+        fullName: true,
+        parentStudents: {
+          select: {
+            parent: {
+              select: {
+                userId: true,
               },
-            });
-          }
-        }
-
-        // Notify parents of this student
-        const studentInfo = await tx.student.findUnique({
-          where: { id: sid },
-          include: {
-            parentStudents: {
-              include: { parent: true },
             },
           },
-        });
+        },
+      },
+    });
 
-        if (studentInfo) {
-          for (const ps of studentInfo.parentStudents) {
-            if (ps.parent.userId) {
-              await tx.notification.create({
-                data: {
-                  userId: ps.parent.userId,
-                  title: `Tagihan Baru: ${title}`,
-                  message: `Tagihan sebesar ${new Intl.NumberFormat("id-ID", {
-                    style: "currency",
-                    currency: "IDR",
-                    minimumFractionDigits: 0,
-                  }).format(amount)} untuk ${studentInfo.fullName} telah diterbitkan.`,
-                  type: "BILL_CREATED",
-                  linkUrl: `/parent/bills`,
+    if (targetStudents.length === 0) {
+      return NextResponse.json(
+        { success: false, message: "Data siswa yang dipilih tidak ditemukan." },
+        { status: 400 }
+      );
+    }
+
+    const now = new Date();
+    const year = now.getFullYear();
+
+    // Prepare installment creation payload if installments are enabled
+    const installmentData = (allowInstallment && installments && installments.length > 0)
+      ? installments.map((inst: any, idx: number) => ({
+          installmentNumber: idx + 1,
+          amount: Number(inst.amount),
+          paidAmount: 0,
+          remainingAmount: Number(inst.amount),
+          dueDate: new Date(inst.dueDate),
+          status: "UNPAID",
+          notes: inst.notes || `Cicilan Ke-${idx + 1}`,
+        }))
+      : null;
+
+    // Execute atomic creation with increased timeout and maxWait
+    const createdBills = await prisma.$transaction(
+      async (tx) => {
+        const results = [];
+
+        for (let i = 0; i < targetStudents.length; i++) {
+          const student = targetStudents[i];
+          const randomNum = Math.floor(1000 + Math.random() * 9000);
+          const billNumber = `BILL-${year}-${Date.now().toString().slice(-4)}${randomNum}`;
+
+          const newBill = await tx.bill.create({
+            data: {
+              billNumber,
+              studentId: student.id,
+              billTypeId,
+              academicYearId,
+              title,
+              totalAmount: amount,
+              paidAmount: 0,
+              remainingAmount: amount,
+              status: "UNPAID",
+              dueDate: new Date(dueDate),
+              allowInstallment: !!allowInstallment,
+              notes: notes || null,
+              createdById: auth.user.id,
+              ...(installmentData ? {
+                installments: {
+                  create: installmentData,
                 },
-              });
-            }
-          }
+              } : {}),
+            },
+          });
+
+          results.push(newBill);
         }
 
-        results.push(newBill);
+        return results;
+      },
+      {
+        maxWait: 15000,
+        timeout: 30000,
       }
+    );
 
-      return results;
-    });
+    // Asynchronously dispatch notifications outside the transaction to avoid holding locks
+    const formattedAmount = new Intl.NumberFormat("id-ID", {
+      style: "currency",
+      currency: "IDR",
+      minimumFractionDigits: 0,
+    }).format(amount);
+
+    const notificationsToCreate: Array<{
+      userId: string;
+      title: string;
+      message: string;
+      type: string;
+      linkUrl: string;
+    }> = [];
+
+    for (const student of targetStudents) {
+      for (const ps of student.parentStudents) {
+        if (ps.parent?.userId) {
+          notificationsToCreate.push({
+            userId: ps.parent.userId,
+            title: `Tagihan Baru: ${title}`,
+            message: `Tagihan sebesar ${formattedAmount} untuk ${student.fullName} telah diterbitkan.`,
+            type: "BILL_CREATED",
+            linkUrl: `/parent/bills`,
+          });
+        }
+      }
+    }
+
+    if (notificationsToCreate.length > 0) {
+      prisma.notification.createMany({
+        data: notificationsToCreate,
+        skipDuplicates: true,
+      }).catch((notifError) => {
+        console.error("Failed to batch create notifications:", notifError);
+      });
+    }
 
     await logAudit({
       userId: auth.user.id,

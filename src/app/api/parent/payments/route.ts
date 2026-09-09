@@ -25,9 +25,8 @@ export async function GET(req: NextRequest) {
     const payments = await prisma.payment.findMany({
       where: {
         studentId: { in: targetIds },
-        status: "SUCCESS",
       },
-      orderBy: { paidAt: "desc" },
+      orderBy: { createdAt: "desc" },
       include: {
         student: {
           include: { class: true },

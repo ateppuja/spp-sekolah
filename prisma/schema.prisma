@@ -192,6 +192,8 @@ model Payment {
   paidAt              DateTime?
   expiresAt           DateTime?
   recordedById        String?   // Admin User ID for manual/cash payments
+  proofUrl            String?   // Uploaded proof of transfer image (URL or base64)
+  bankSender          String?   // Nama Bank & Pemilik Rekening Pengirim
   notes               String?
   rawGatewayResponse  String?   // JSON string if any
   createdAt           DateTime  @default(now())

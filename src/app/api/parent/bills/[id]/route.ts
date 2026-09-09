@@ -38,12 +38,12 @@ export async function GET(
           orderBy: { installmentNumber: "asc" },
           include: {
             payments: {
-              where: { status: "SUCCESS" },
+              where: { status: { in: ["SUCCESS", "PENDING"] } },
             },
           },
         },
         payments: {
-          where: { status: "SUCCESS" },
+          where: { status: { in: ["SUCCESS", "PENDING"] } },
           orderBy: { createdAt: "desc" },
         },
       },

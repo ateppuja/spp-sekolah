@@ -206,7 +206,7 @@ export default function ParentBillsPage() {
                 )}
 
                 {/* Actions */}
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
                   <button
                     onClick={() => openBillDetail(bill.id)}
                     className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 hover:text-sky-600 bg-slate-50 hover:bg-sky-50 px-3 py-2 rounded-xl transition border border-slate-200"
@@ -216,17 +216,27 @@ export default function ParentBillsPage() {
                   </button>
 
                   {bill.remainingAmount > 0 && (
-                    <Link
-                      href={
-                        nextUnpaidInstallment
-                          ? `/parent/checkout?billId=${bill.id}&installmentId=${nextUnpaidInstallment.id}`
-                          : `/parent/checkout?billId=${bill.id}`
-                      }
-                      className="inline-flex items-center gap-1.5 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-md shadow-sky-600/20 transition cursor-pointer"
-                    >
-                      Bayar Sekarang
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </Link>
+                    bill.payments?.some((p: any) => p.status === "PENDING") ? (
+                      <Link
+                        href="/parent/payments"
+                        className="inline-flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-bold text-xs px-3.5 py-2 rounded-xl transition shadow-2xs cursor-pointer"
+                      >
+                        <Clock className="w-3.5 h-3.5 text-amber-600" />
+                        Menunggu Verifikasi Admin
+                      </Link>
+                    ) : (
+                      <Link
+                        href={
+                          nextUnpaidInstallment
+                            ? `/parent/checkout?billId=${bill.id}&installmentId=${nextUnpaidInstallment.id}`
+                            : `/parent/checkout?billId=${bill.id}`
+                        }
+                        className="inline-flex items-center gap-1.5 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-md shadow-sky-600/20 transition cursor-pointer"
+                      >
+                        Bayar Sekarang
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </Link>
+                    )
                   )}
                 </div>
               </div>

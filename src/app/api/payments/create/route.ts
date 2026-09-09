@@ -9,11 +9,18 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { billId, installmentId, paymentMethod } = body;
+    const { billId, installmentId, paymentMethod = "BANK_TRANSFER", proofImage, bankSender, notes } = body;
 
-    if (!billId || !paymentMethod) {
+    if (!billId) {
       return NextResponse.json(
-        { success: false, message: "Tagihan dan Metode Pembayaran wajib dipilih." },
+        { success: false, message: "Tagihan wajib dipilih." },
+        { status: 400 }
+      );
+    }
+
+    if (paymentMethod === "BANK_TRANSFER" && !proofImage) {
+      return NextResponse.json(
+        { success: false, message: "Foto atau file bukti transfer wajib diunggah." },
         { status: 400 }
       );
     }
@@ -34,6 +41,25 @@ export async function POST(req: NextRequest) {
 
     if (!bill) {
       return NextResponse.json({ success: false, message: "Tagihan tidak ditemukan." }, { status: 404 });
+    }
+
+    // Check if there is already a PENDING payment for this exact bill/installment
+    const existingPending = await prisma.payment.findFirst({
+      where: {
+        billId: bill.id,
+        installmentId: installmentId || null,
+        status: "PENDING",
+      },
+    });
+
+    if (existingPending) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Tagihan ini sudah memiliki transaksi yang sedang menunggu verifikasi admin. Mohon tunggu konfirmasi bagian Tata Usaha.",
+        },
+        { status: 400 }
+      );
     }
 
     // If PARENT, verify that student belongs to parent
@@ -85,10 +111,7 @@ export async function POST(req: NextRequest) {
     }
 
     const paymentNumber = generateTransactionNumber();
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours expiry
-
-    // Generate mock details
-    const mockDetails = generateMockPaymentDetails(paymentMethod as PaymentMethod, paymentNumber, targetAmount);
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days expiry for manual review
 
     const payment = await prisma.payment.create({
       data: {
@@ -97,19 +120,43 @@ export async function POST(req: NextRequest) {
         installmentId: targetInstallment?.id || null,
         studentId: bill.studentId,
         amount: targetAmount,
-        paymentMethod,
+        paymentMethod: paymentMethod || "BANK_TRANSFER",
         status: "PENDING",
+        proofUrl: proofImage || null,
+        bankSender: bankSender || null,
+        notes: notes || null,
         expiresAt,
-        rawGatewayResponse: JSON.stringify(mockDetails),
       },
     });
 
+    // Notify administrators of newly uploaded payment proof
+    const formattedAmount = new Intl.NumberFormat("id-ID", {
+      style: "currency",
+      currency: "IDR",
+      minimumFractionDigits: 0,
+    }).format(targetAmount);
+
+    const adminUsers = await prisma.user.findMany({
+      where: { role: "ADMIN", isActive: true },
+      select: { id: true },
+    });
+
+    if (adminUsers.length > 0) {
+      const notifs = adminUsers.map((adm) => ({
+        userId: adm.id,
+        title: "Bukti Transfer Masuk 🔔",
+        message: `Bukti transfer ${formattedAmount} untuk ${bill.student.fullName} (${bill.title}) telah diunggah dan menunggu verifikasi.`,
+        type: "PAYMENT_PENDING",
+        linkUrl: `/admin/payments`,
+      }));
+      prisma.notification.createMany({ data: notifs, skipDuplicates: true }).catch(() => {});
+    }
+
     return NextResponse.json({
       success: true,
-      message: "Transaksi pembayaran berhasil dibuat.",
+      message: "Bukti pembayaran berhasil diunggah! Status: Menunggu verifikasi admin.",
       data: {
         payment,
-        details: mockDetails,
       },
     });
   } catch (error: any) {
